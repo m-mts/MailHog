@@ -1,0 +1,1 @@
+MailHog_windows_amd64.exe -environmen-label DEV -smtp-bind-addr 0.0.0.0:25 -outgoing-smtp primary-smtp.json

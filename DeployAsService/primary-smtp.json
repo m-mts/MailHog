@@ -1,0 +1,8 @@
+{
+    "AutoRelease": {
+        "name": "AutoRelease",
+        "host": "localhost",
+        "port": "1025",
+        "mechanism": "PLAIN"
+    }
+}
