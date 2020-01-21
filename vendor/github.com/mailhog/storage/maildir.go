@@ -146,7 +146,7 @@ func (maildir *Maildir) List(start, limit int) (*data.Messages, error) {
 		}
 		msg := data.FromBytes(b)
 		// FIXME domain
-		m := *msg.Parse("mailhog.example")
+		m := *msg.Parse("mailhog.example", "")
 		m.ID = data.MessageID(fileinfo.Name())
 		m.Created = fileinfo.ModTime()
 		messages = append(messages, m)
@@ -178,7 +178,7 @@ func (maildir *Maildir) Load(id string) (*data.Message, error) {
 		return nil, err
 	}
 	// FIXME domain
-	m := data.FromBytes(b).Parse("mailhog.example")
+	m := data.FromBytes(b).Parse("mailhog.example", "")
 	m.ID = data.MessageID(id)
 	return m, nil
 }

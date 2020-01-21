@@ -5,9 +5,11 @@ package smtp
 import (
 	"io"
 	"log"
+	netsmtp "net/smtp"
 	"strings"
 
 	"github.com/ian-kent/linkio"
+	"github.com/mailhog/MailHog-Server/config"
 	"github.com/mailhog/MailHog-Server/monkey"
 	"github.com/mailhog/data"
 	"github.com/mailhog/smtp"
@@ -24,14 +26,23 @@ type Session struct {
 	isTLS         bool
 	line          string
 	link          *linkio.Link
+	config        *config.Config
 
 	reader io.Reader
 	writer io.Writer
 	monkey monkey.ChaosMonkey
 }
 
+// ReleaseConfig is an alias to preserve go package API
+type ReleaseConfig config.OutgoingSMTP
+
 // Accept starts a new SMTP session using io.ReadWriteCloser
-func Accept(remoteAddress string, conn io.ReadWriteCloser, storage storage.Storage, messageChan chan *data.Message, hostname string, monkey monkey.ChaosMonkey) {
+func Accept(remoteAddress string, conn io.ReadWriteCloser, cfg *config.Config) {
+	storage := cfg.Storage
+	messageChan := cfg.MessageChan
+	hostname := cfg.Hostname
+	monkey := cfg.Monkey
+
 	defer conn.Close()
 
 	proto := smtp.NewProtocol()
@@ -48,7 +59,7 @@ func Accept(remoteAddress string, conn io.ReadWriteCloser, storage storage.Stora
 		}
 	}
 
-	session := &Session{conn, proto, storage, messageChan, remoteAddress, false, "", link, reader, writer, monkey}
+	session := &Session{conn, proto, storage, messageChan, remoteAddress, false, "", link, cfg, reader, writer, monkey}
 	proto.LogHandler = session.logf
 	proto.MessageReceivedHandler = session.acceptMessage
 	proto.ValidateSenderHandler = session.validateSender
@@ -99,11 +110,62 @@ func (c *Session) validateSender(from string) bool {
 }
 
 func (c *Session) acceptMessage(msg *data.SMTPMessage) (id string, err error) {
-	m := msg.Parse(c.proto.Hostname)
+	m := msg.Parse(c.proto.Hostname, c.config.EnvironmentLabel)
 	c.logf("Storing message %s", m.ID)
 	id, err = c.storage.Store(m)
+	go c.release(m)
 	c.messageChan <- m
 	return
+}
+
+func (c *Session) release(msg *data.Message) {
+	var releaseCfg ReleaseConfig
+	if cfg, ok := c.config.OutgoingSMTP["AutoRelease"]; ok {
+		c.logf("Using server with name: AutoRelease")
+		releaseCfg.Name = cfg.Name
+		if len(cfg.Email) == 0 {
+			releaseCfg.Email = cfg.Email
+		}
+		releaseCfg.Host = cfg.Host
+		releaseCfg.Port = cfg.Port
+		releaseCfg.Username = cfg.Username
+		releaseCfg.Password = cfg.Password
+		releaseCfg.Mechanism = cfg.Mechanism
+	} else {
+		return
+	}
+
+	c.logf("Releasing to %s (via %s:%s)", releaseCfg.Email, releaseCfg.Host, releaseCfg.Port)
+
+	bytes := make([]byte, 0)
+	for h, l := range msg.Content.Headers {
+		for _, v := range l {
+			bytes = append(bytes, []byte(h+": "+v+"\r\n")...)
+		}
+	}
+	bytes = append(bytes, []byte("\r\n"+msg.Content.Body)...)
+
+	var auth netsmtp.Auth
+
+	if len(releaseCfg.Username) > 0 || len(releaseCfg.Password) > 0 {
+		c.logf("Found username/password, using auth mechanism: [%s]", releaseCfg.Mechanism)
+		switch releaseCfg.Mechanism {
+		case "CRAMMD5":
+			auth = netsmtp.CRAMMD5Auth(releaseCfg.Username, releaseCfg.Password)
+		case "PLAIN":
+			auth = netsmtp.PlainAuth("", releaseCfg.Username, releaseCfg.Password, releaseCfg.Host)
+		default:
+			c.logf("Error - invalid authentication mechanism")
+			return
+		}
+	}
+
+	err := netsmtp.SendMail(releaseCfg.Host+":"+releaseCfg.Port, auth, msg.Content.Headers["From"][0], msg.Content.Headers["To"], bytes)
+	if err != nil {
+		c.logf("Failed to release message: %s (Host: %s, From: %s, To: %s)", err, releaseCfg.Host+":"+releaseCfg.Port, msg.Content.Headers["From"][0], msg.Content.Headers["To"])
+		return
+	}
+	c.logf("Message released successfully")
 }
 
 func (c *Session) logf(message string, args ...interface{}) {

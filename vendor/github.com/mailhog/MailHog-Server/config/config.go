@@ -15,18 +15,19 @@ import (
 // DefaultConfig is the default config
 func DefaultConfig() *Config {
 	return &Config{
-		SMTPBindAddr: "0.0.0.0:1025",
-		APIBindAddr:  "0.0.0.0:8025",
-		Hostname:     "mailhog.example",
-		MongoURI:     "127.0.0.1:27017",
-		MongoDb:      "mailhog",
-		MongoColl:    "messages",
-		MaildirPath:  "",
-		StorageType:  "memory",
-		CORSOrigin:   "",
-		WebPath:      "",
-		MessageChan:  make(chan *data.Message),
-		OutgoingSMTP: make(map[string]*OutgoingSMTP),
+		SMTPBindAddr:     "0.0.0.0:1025",
+		APIBindAddr:      "0.0.0.0:8025",
+		Hostname:         "mailhog.example",
+		MongoURI:         "127.0.0.1:27017",
+		MongoDb:          "mailhog",
+		MongoColl:        "messages",
+		MaildirPath:      "",
+		StorageType:      "memory",
+		CORSOrigin:       "",
+		WebPath:          "",
+		MessageChan:      make(chan *data.Message),
+		OutgoingSMTP:     make(map[string]*OutgoingSMTP),
+		EnvironmentLabel: "",
 	}
 }
 
@@ -49,6 +50,7 @@ type Config struct {
 	OutgoingSMTPFile string
 	OutgoingSMTP     map[string]*OutgoingSMTP
 	WebPath          string
+	EnvironmentLabel string
 }
 
 // OutgoingSMTP is an outgoing SMTP server config
@@ -128,5 +130,6 @@ func RegisterFlags() {
 	flag.StringVar(&cfg.MaildirPath, "maildir-path", envconf.FromEnvP("MH_MAILDIR_PATH", "").(string), "Maildir path (if storage type is 'maildir')")
 	flag.BoolVar(&cfg.InviteJim, "invite-jim", envconf.FromEnvP("MH_INVITE_JIM", false).(bool), "Decide whether to invite Jim (beware, he causes trouble)")
 	flag.StringVar(&cfg.OutgoingSMTPFile, "outgoing-smtp", envconf.FromEnvP("MH_OUTGOING_SMTP", "").(string), "JSON file containing outgoing SMTP servers")
+	flag.StringVar(&cfg.EnvironmentLabel, "environmen-label", envconf.FromEnvP("Environment_Label", "").(string), "Environment Label, e.g DEV, QA, UAT")
 	Jim.RegisterFlags()
 }

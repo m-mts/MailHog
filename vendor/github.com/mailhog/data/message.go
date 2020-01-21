@@ -87,7 +87,7 @@ type MIMEBody struct {
 }
 
 // Parse converts a raw SMTP message to a parsed MIME message
-func (m *SMTPMessage) Parse(hostname string) *Message {
+func (m *SMTPMessage) Parse(hostname string, environmentLabel string) *Message {
 	var arr []*Path
 	for _, path := range m.To {
 		arr = append(arr, PathFromString(path))
@@ -98,14 +98,14 @@ func (m *SMTPMessage) Parse(hostname string) *Message {
 		ID:      id,
 		From:    PathFromString(m.From),
 		To:      arr,
-		Content: ContentFromString(m.Data),
+		Content: ContentFromString(m.Data, environmentLabel),
 		Created: time.Now(),
 		Raw:     m,
 	}
 
 	if msg.Content.IsMIME() {
 		logf("Parsing MIME body")
-		msg.MIME = msg.Content.ParseMIMEBody()
+		msg.MIME = msg.Content.ParseMIMEBody(environmentLabel)
 	}
 
 	// find headers
@@ -222,7 +222,7 @@ func (content *Content) IsMIME() bool {
 }
 
 // ParseMIMEBody parses SMTP message content into multiple MIME parts
-func (content *Content) ParseMIMEBody() *MIMEBody {
+func (content *Content) ParseMIMEBody(environmentLabel string) *MIMEBody {
 	var parts []*Content
 
 	if hdr, ok := content.Headers["Content-Type"]; ok {
@@ -238,10 +238,10 @@ func (content *Content) ParseMIMEBody() *MIMEBody {
 
 			for _, s := range p {
 				if len(s) > 0 {
-					part := ContentFromString(strings.Trim(s, "\r\n"))
+					part := ContentFromString(strings.Trim(s, "\r\n"), environmentLabel)
 					if part.IsMIME() {
 						logf("Parsing inner MIME body")
-						part.MIME = part.ParseMIMEBody()
+						part.MIME = part.ParseMIMEBody(environmentLabel)
 					}
 					parts = append(parts, part)
 				}
@@ -281,11 +281,16 @@ func PathFromString(path string) *Path {
 }
 
 // ContentFromString parses SMTP content into separate headers and body
-func ContentFromString(data string) *Content {
+func ContentFromString(data string, environmentLabel string) *Content {
 	logf("Parsing Content from string: '%s'", data)
 	x := strings.SplitN(data, "\r\n\r\n", 2)
 	h := make(map[string][]string, 0)
-
+	var envLabelBody string = ""
+	var envLabelSubject string = ""
+	if len(environmentLabel) > 0 {
+		envLabelSubject = "[ENVIRONMENT: " + environmentLabel + "] "
+		envLabelBody = "\r\n ---------------------- \r\n !!! ENVIRONMENT: " + environmentLabel + "\r\n----------------------\r\n\r\n"
+	}
 	// FIXME this fails if the message content has no headers - specifically,
 	// if it doesn't contain \r\n\r\n
 
@@ -300,6 +305,9 @@ func ContentFromString(data string) *Content {
 				y := strings.SplitN(hdr, ": ", 2)
 				key, value := y[0], y[1]
 				// TODO multiple header fields
+				if key == "Subject" {
+					value = envLabelSubject + value
+				}
 				h[key] = []string{value}
 				lastHdr = key
 			} else if len(hdr) > 0 {
@@ -309,13 +317,13 @@ func ContentFromString(data string) *Content {
 		return &Content{
 			Size:    len(data),
 			Headers: h,
-			Body:    body,
+			Body:    envLabelBody + body,
 		}
 	}
 	return &Content{
 		Size:    len(data),
 		Headers: h,
-		Body:    x[0],
+		Body:    envLabelBody + x[0],
 	}
 }
 
